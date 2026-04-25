@@ -229,15 +229,6 @@ This system is for **educational and informational purposes only**. It does **NO
 
 ---
 
-## 🎓 CV-Ready GenAI Concepts Used
-
-- **RAG (Retrieval-Augmented Generation)**: Knowledge base retrieval using vector similarity
-- **Dense Retrieval**: SentenceTransformer embeddings for semantic search
-- **Vector Database**: FAISS for efficient similarity search at scale
-- **NLP Pipeline**: NLTK preprocessing (tokenization, lemmatization, stopword removal)
-- **Agentic AI**: Multi-turn conversation with stateful session management
-- **REST API Design**: Flask with JSON endpoints
-- **Embedding Caching**: Persistent FAISS index for production efficiency
 
 ---
 
