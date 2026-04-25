@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MediBot — AI Medical Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════ -->
+  <!--  SIDEBAR / HEADER                      -->
+  <!-- ══════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-pulse"></div>
+      <span class="logo-text">Medi<span class="accent">Bot</span></span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-label">CAPABILITIES</div>
+      <div class="nav-item active">
+        <span class="nav-icon">⬡</span> Symptom Analysis
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⬡</span> Disease Prediction
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⬡</span> Precaution Guide
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⬡</span> Medicine Info
+      </div>
+      <div class="nav-item">
+        <span class="nav-icon">⬡</span> Smart Follow-Up
+      </div>
+    </nav>
+
+    <div class="sidebar-info">
+      <div class="info-badge">
+        <span class="badge-dot"></span>
+        RAG + FAISS Engine
+      </div>
+      <div class="info-badge">
+        <span class="badge-dot"></span>
+        NLP Preprocessing
+      </div>
+      <div class="info-badge">
+        <span class="badge-dot"></span>
+        Semantic Embeddings
+      </div>
+    </div>
+
+    <div class="disclaimer-mini">
+      ⚠️ For informational use only. Not a substitute for professional medical advice.
+    </div>
+  </aside>
+
+  <!-- ══════════════════════════════════════ -->
+  <!--  MAIN CHAT AREA                        -->
+  <!-- ══════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- Header bar -->
+    <header class="topbar">
+      <div class="topbar-title">
+        <span>AI Medical Assistant</span>
+        <span class="topbar-sub">Powered by Sentence Transformers + FAISS</span>
+      </div>
+      <div class="topbar-actions">
+        <div class="status-indicator" id="statusDot">
+          <span class="status-dot loading"></span>
+          <span class="status-text" id="statusText">Initializing…</span>
+        </div>
+        <button class="reset-btn" onclick="resetChat()">↺ New Chat</button>
+      </div>
+    </header>
+
+    <!-- Messages container -->
+    <section class="chat-window" id="chatWindow">
+
+      <!-- Welcome message -->
+      <div class="message bot-message intro-message">
+        <div class="avatar">M</div>
+        <div class="bubble">
+          <p class="greeting">Hello! I'm <strong>MediBot</strong>, your AI health assistant.</p>
+          <p>I use <em>semantic embeddings</em> and <em>vector search</em> to analyze your symptoms and provide health guidance.</p>
+          <div class="intro-chips">
+            <span class="chip" onclick="fillExample('I have fever, headache and body aches')">fever + headache</span>
+            <span class="chip" onclick="fillExample('sore throat, runny nose and sneezing')">cold symptoms</span>
+            <span class="chip" onclick="fillExample('chest pain, shortness of breath and fatigue')">chest + breathing</span>
+            <span class="chip" onclick="fillExample('joint pain, stiffness and swelling in knees')">joint pain</span>
+          </div>
+          <p class="mini-note">Describe your symptoms in natural language — no medical jargon needed.</p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Input area -->
+    <footer class="input-area">
+      <div class="input-wrapper">
+        <textarea
+          id="symptomsInput"
+          class="symptom-input"
+          placeholder="Describe your symptoms… (e.g. 'I have been having severe headache, fever, and nausea for 3 days')"
+          rows="2"
+          onkeydown="handleKeyDown(event)"
+        ></textarea>
+        <button class="send-btn" id="sendBtn" onclick="sendSymptoms()">
+          <span class="send-icon">→</span>
+        </button>
+      </div>
+      <div class="input-footer">
+        Press <kbd>Ctrl+Enter</kbd> to send &nbsp;·&nbsp; <kbd>Enter</kbd> for new line
+      </div>
+    </footer>
+
+  </main>
+
+  <!-- ══════════════════════════════════════ -->
+  <!--  RESULT PANEL (slides in)              -->
+  <!-- ══════════════════════════════════════ -->
+  <aside class="result-panel" id="resultPanel">
+    <div class="panel-header">
+      <span>Diagnosis Report</span>
+      <button class="panel-close" onclick="closePanel()">✕</button>
+    </div>
+    <div class="panel-body" id="panelBody">
+      <!-- Filled dynamically -->
+    </div>
+  </aside>
+
+  <!-- ══════════════════════════════════════ -->
+  <!--  JAVASCRIPT                            -->
+  <!-- ══════════════════════════════════════ -->
+  <script>
+    // ─── State ───────────────────────────────
+    let currentSessionId = null;
+    let awaitingFollowUp = false;
+
+    // ─── Status polling ───────────────────────
+    function checkStatus() {
+      fetch('/health')
+        .then(r => r.json())
+        .then(data => {
+          const dot  = document.getElementById('statusDot');
+          const text = document.getElementById('statusText');
+          if (data.index_ready) {
+            dot.querySelector('.status-dot').className = 'status-dot ready';
+            text.textContent = `Ready · ${data.diseases_loaded} conditions`;
+          } else {
+            setTimeout(checkStatus, 3000);
+          }
+        })
+        .catch(() => setTimeout(checkStatus, 5000));
+    }
+    checkStatus();
+
+    // ─── Key handler ─────────────────────────
+    function handleKeyDown(e) {
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        if (awaitingFollowUp) submitFollowUp();
+        else sendSymptoms();
+      }
+    }
+
+    // ─── Fill example ────────────────────────
+    function fillExample(text) {
+      document.getElementById('symptomsInput').value = text;
+      document.getElementById('symptomsInput').focus();
+    }
+
+    // ─── Send Symptoms ────────────────────────
+    async function sendSymptoms() {
+      const input = document.getElementById('symptomsInput');
+      const text  = input.value.trim();
+      if (!text) return;
+
+      addMessage('user', text);
+      input.value = '';
+      setLoading(true);
+
+      try {
+        const res  = await fetch('/predict', {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({ symptoms: text }),
+        });
+        const data = await res.json();
+        setLoading(false);
+
+        if (data.status === 'loading') {
+          addMessage('bot', '⏳ The AI system is warming up. Please wait 10–15 seconds and try again.');
+          return;
+        }
+        if (data.status === 'error') {
+          addMessage('bot', `❌ ${data.message}`);
+          return;
+        }
+
+        // Show result in panel
+        renderResultPanel(data);
+
+        // Bot response in chat
+        const botMsg = buildBotSummary(data);
+        addMessage('bot', botMsg, true);
+
+        // Follow-up
+        if (data.followup && data.followup.question) {
+          currentSessionId = data.followup.session_id;
+          awaitingFollowUp = true;
+          setTimeout(() => {
+            addFollowUpQuestion(data.followup.question);
+          }, 800);
+        }
+
+      } catch (err) {
+        setLoading(false);
+        addMessage('bot', '❌ Network error. Please ensure the Flask server is running.');
+      }
+    }
+
+    // ─── Follow-up ────────────────────────────
+    function addFollowUpQuestion(question) {
+      const placeholder = document.getElementById('symptomsInput');
+      placeholder.placeholder = `Answer: ${question}`;
+
+      addMessage('bot', `<div class="followup-q"><span class="fq-badge">Follow-Up</span> ${question}</div>`, true);
+    }
+
+    async function submitFollowUp() {
+      const input  = document.getElementById('symptomsInput');
+      const answer = input.value.trim();
+      if (!answer || !currentSessionId) return;
+
+      addMessage('user', answer);
+      input.value = '';
+      setLoading(true);
+
+      try {
+        const res  = await fetch('/followup', {
+          method : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body   : JSON.stringify({ session_id: currentSessionId, answer }),
+        });
+        const data = await res.json();
+        setLoading(false);
+
+        if (data.next_question && !data.complete) {
+          addFollowUpQuestion(data.next_question);
+        } else {
+          awaitingFollowUp = false;
+          document.getElementById('symptomsInput').placeholder = 'Describe your symptoms…';
+          addMessage('bot', `
+            <div class="followup-complete">
+              <span>✓</span>
+              <div>
+                <strong>Follow-up complete.</strong><br/>
+                Your responses have been recorded. Please consult a healthcare professional with this information for proper diagnosis and treatment.
+              </div>
+            </div>
+          `, true);
+        }
+      } catch (err) {
+        setLoading(false);
+      }
+    }
+
+    // ─── Render Panel ─────────────────────────
+    function renderResultPanel(data) {
+      const p = data.primary;
+      const alts = data.alternatives || [];
+
+      let html = `
+        <div class="report-disease">
+          <div class="report-label">PRIMARY MATCH</div>
+          <div class="report-name">${p.disease}</div>
+          <div class="confidence-bar">
+            <div class="conf-fill conf-${p.confidence.toLowerCase()}" style="width:${p.score}%"></div>
+          </div>
+          <div class="conf-label">${p.confidence} Confidence · ${p.score}% similarity</div>
+        </div>
+
+        <div class="report-section">
+          <div class="report-sec-title">📋 Description</div>
+          <p class="report-desc">${p.description}</p>
+        </div>
+
+        <div class="report-section">
+          <div class="report-sec-title">🛡️ Precautions</div>
+          <ul class="report-list">
+            ${p.precautions.map(x => `<li>${x}</li>`).join('')}
+          </ul>
+        </div>
+
+        <div class="report-section">
+          <div class="report-sec-title">💊 Suggested Care</div>
+          <ul class="report-list med-list">
+            ${p.medications.map(x => `<li>${x}</li>`).join('')}
+          </ul>
+        </div>
+      `;
+
+      if (alts.length > 0) {
+        html += `
+          <div class="report-section">
+            <div class="report-sec-title">🔄 Other Possibilities</div>
+            ${alts.map(a => `
+              <div class="alt-disease">
+                <span class="alt-name">${a.disease}</span>
+                <span class="alt-score">${a.score}%</span>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      html += `<div class="report-disclaimer">${data.disclaimer}</div>`;
+
+      document.getElementById('panelBody').innerHTML = html;
+      document.getElementById('resultPanel').classList.add('open');
+    }
+
+    function closePanel() {
+      document.getElementById('resultPanel').classList.remove('open');
+    }
+
+    // ─── Chat helpers ─────────────────────────
+    function buildBotSummary(data) {
+      const p = data.primary;
+      return `
+        <div class="result-card">
+          <div class="rc-header">
+            <span class="rc-icon">🔬</span>
+            <div>
+              <div class="rc-disease">${p.disease}</div>
+              <div class="rc-conf conf-${p.confidence.toLowerCase()}">${p.confidence} Confidence (${p.score}%)</div>
+            </div>
+            <button class="rc-detail-btn" onclick="document.getElementById('resultPanel').classList.add('open')">Details →</button>
+          </div>
+          <div class="rc-desc">${p.description.substring(0, 150)}…</div>
+        </div>
+      `;
+    }
+
+    function addMessage(role, content, isHTML = false) {
+      const win = document.getElementById('chatWindow');
+      const div = document.createElement('div');
+      div.className = `message ${role === 'user' ? 'user-message' : 'bot-message'}`;
+
+      if (role === 'bot') {
+        div.innerHTML = `
+          <div class="avatar">M</div>
+          <div class="bubble">${isHTML ? content : escapeHTML(content)}</div>
+        `;
+      } else {
+        div.innerHTML = `<div class="bubble user-bubble">${escapeHTML(content)}</div>`;
+      }
+
+      win.appendChild(div);
+      win.scrollTo({ top: win.scrollHeight, behavior: 'smooth' });
+    }
+
+    function setLoading(state) {
+      const btn  = document.getElementById('sendBtn');
+      const chat = document.getElementById('chatWindow');
+
+      if (state) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span>';
+        const loader = document.createElement('div');
+        loader.className = 'message bot-message loading-msg';
+        loader.id = 'loadingMsg';
+        loader.innerHTML = `
+          <div class="avatar">M</div>
+          <div class="bubble">
+            <div class="typing-dots"><span></span><span></span><span></span></div>
+            <span class="loading-label">Analyzing symptoms…</span>
+          </div>
+        `;
+        chat.appendChild(loader);
+        chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' });
+      } else {
+        btn.disabled = false;
+        btn.innerHTML = '<span class="send-icon">→</span>';
+        const loader = document.getElementById('loadingMsg');
+        if (loader) loader.remove();
+      }
+    }
+
+    function escapeHTML(text) {
+      return text
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    async function resetChat() {
+      await fetch('/reset');
+      currentSessionId = null;
+      awaitingFollowUp = false;
+      document.getElementById('symptomsInput').placeholder = 'Describe your symptoms…';
+      document.getElementById('chatWindow').innerHTML = `
+        <div class="message bot-message intro-message">
+          <div class="avatar">M</div>
+          <div class="bubble">
+            <p class="greeting">Chat reset. How can I help you today?</p>
+            <p>Describe your symptoms and I'll analyze them using our AI engine.</p>
+          </div>
+        </div>
+      `;
+      closePanel();
+    }
+  </script>
+
+</body>
+</html>
